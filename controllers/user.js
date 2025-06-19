@@ -8,25 +8,31 @@ export const editUserProfile = async (req, res) => {
             ...req.body,
         };
 
-
         // Handle avatar upload
-        if (req.files?.avatar?.[0]) {
-            const avatarUpload = await uploadToCloudinary(
-                req.files.avatar[0].path,
-                `users-avatar-images`
-            );
-            updateData.avatar = avatarUpload;
+        if (req.files?.avatar) {
+            const result = await uploadToCloudinary(req.files.avatar[0].path, 'avatars');
+            updateData.avatar = {
+                url: result.url,
+                public_id: result.publicId
+            };
         }
-
-        // Handle logo upload
-        if (req.files?.logo?.[0]) {
-            const logoUpload = await uploadToCloudinary(
-                req.files.logo[0].path,
-                `users-logo-images`
-            );
-            updateData.logo = logoUpload;
+    
+        if (req.files?.businessLogo) {
+            const result = await uploadToCloudinary(req.files.businessLogo[0].path, 'business/logos');
+            updateData.businessLogo = {
+                url: result.url,
+                public_id: result.publicId
+            };
         }
-
+    
+        if (req.files?.businessDocument) {
+            const result = await uploadToCloudinary(req.files.businessDocument[0].path, 'business/documents');
+            updateData.businessDocument = {
+                url: result.url,
+                public_id: result.publicId
+            };
+        }
+       
         const updatedUser = await User.findByIdAndUpdate(userId, updateData, {
             new: true,
             select: "-password",

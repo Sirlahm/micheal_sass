@@ -9,7 +9,8 @@ const router = express.Router();
 
 router.put('/', authMiddleware, uploadMiddleware.fields([
     { name: 'avatar', maxCount: 1 },
-    { name: 'logo', maxCount: 1 }
+    { name: 'businessLogo', maxCount: 1 },
+    { name: 'businessDocument', maxCount: 1 },
 ]), userController.editUserProfile)
 
 

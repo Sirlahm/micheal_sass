@@ -8,8 +8,6 @@ import path from "path";
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
         const uploadDir = path.join(process.cwd(), 'uploads');
-
-        // Check if uploads/ exists; create it if not
         if (!fs.existsSync(uploadDir)) {
             fs.mkdirSync(uploadDir, { recursive: true }); // Ensures all parent dirs too
         }
@@ -24,7 +22,7 @@ const storage = multer.diskStorage({
 export const uploadMiddleware = multer({
     storage,
     fileFilter: (req, file, cb) => {
-        const filetypes = /jpeg|jpg|png|gif/;
+        const filetypes = /jpeg|jpg|png|pdf|docx|doc/;
         const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
         const mimetype = filetypes.test(file.mimetype);
 

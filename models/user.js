@@ -2,56 +2,93 @@ import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 
-const userSchema = new mongoose.Schema(
-    {
-        name: {
-            type: String,
-            required: true,
-            lowercase: true,
-        },
-        email: {
-            type: String,
-            required: true,
-            lowercase: true,
-            unique: true,
-        },
-        password: {
-            type: String,
-            required: true,
-        },
-        // accountType: {
-        //     type: String,
-        //     required: true,
-        //     enum: ["institution", "organization"],
-        // },
-        avatar: {
-            url: String,
-            publicId: String
-        },
-        logo: {
-            url: String,
-            publicId: String
-        },
-        pollsCreated: {
-            type: Number,
-            default: 0
-        },
-        passwordResetToken: String,
-        passwordResetExpires: Date,
-        logo: String,
-        color: String,
-
-        isAdmin: {
-            type: Boolean,
-            default: false,
-        },
-        lastLogin: { type: Date },
-        otp: String,
-        otpExpires: Date,
+const userSchema = new mongoose.Schema({
+    name: {
+        type: String,
+        required: [true, 'Please enter your name'],
+        maxlength: [30, 'Name cannot exceed 30 characters'],
+        minlength: [3, 'Name should have more than 3 characters']
     },
-    {
-        timestamps: true,
+    email: {
+        type: String,
+        required: [true, 'Please enter your email'],
+        unique: true,
+    },
+    password: {
+        type: String,
+        required: [true, 'Please enter your password'],
+        minlength: [6, 'Password should be at least 6 characters'],
+        select: false
+    },
+    role: {
+        type: String,
+        enum: ['customer', 'vendor', 'superadmin'],
+        default: 'customer'
+    },
+    avatar: {
+        public_id: String,
+        url: String,
+    },
+    phone: String,
+    shippingAddress: {
+        address: String,
+        city: String,
+        state: String,
+        postalCode: String,
+        country: String,
+    },
+    billingAddress: {
+        address: String,
+        city: String,
+        state: String,
+        postalCode: String,
+        country: String,
+    },
+    isVerified: {
+        type: Boolean,
+        default: false
+    },
+    stripeCustomerId: String,
+
+    //Vendor
+    businessEmail: String,
+    businessPhone: String,
+    businessAddress: {
+        street: String,
+        city: String,
+        state: String,
+        country: String,
+        zipCode: String
+    },
+    businessName: String,
+    businessType: String,
+    businessRegistrationNumber: String,
+    industry: String,
+    businessDescription: String,
+    businessWebsite: String,
+    taxId: String,
+    stripeAccountId: String,
+    businessLogo: {
+        public_id: String,
+        url: String,
+      },
+      businessDocument: {
+        public_id: String,
+        url: String,
+      },
+    totalSales: {
+        type: Number,
+        default: 0
+    },
+    verificationToken: String,
+    verificationTokenExpire: Date,
+    // resettoken: String,
+    // resetPasswordTokenExpire: Date,
+    createdAt: {
+        type: Date,
+        default: Date.now
     }
+}
 );
 
 userSchema.pre("save", async function (next) {
@@ -63,7 +100,9 @@ userSchema.pre("save", async function (next) {
     next();
 });
 userSchema.methods.isPasswordMatched = async function (enteredPassword) {
-    return await bcrypt.compare(enteredPassword, this.password);
+    const check = await bcrypt.compare(enteredPassword, this.password)
+    console.log(check)
+    return check;
 };
 
 userSchema.methods.toJSON = function () {
@@ -81,5 +120,16 @@ userSchema.methods.createPasswordResetToken = async function () {
     this.passwordResetExpires = Date.now() + 60 * 60 * 1000; // 60 minutes
     return resettoken;
 };
+
+userSchema.methods.getVerificationToken = function() {
+    const verificationToken = crypto.randomBytes(20).toString('hex');
+    this.verificationToken = crypto
+      .createHash('sha256')
+      .update(verificationToken)
+      .digest('hex');
+    this.verificationTokenExpire = Date.now() + 30 * 60 * 1000;
+  
+    return verificationToken;
+  };
 
 export default mongoose.model("User", userSchema);

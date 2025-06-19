@@ -1,21 +1,11 @@
-import { v2 as cloudinary } from 'cloudinary';
 import fs from 'fs';
-import { configDotenv } from "dotenv";
+import cloudinary from '../config/cloudinary.js';
 
-configDotenv();
-
-
-
-cloudinary.config({
-    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-    api_key: process.env.CLOUDINARY_API_KEY,
-    api_secret: process.env.CLOUDINARY_API_SECRET,
-});
 
 export const uploadToCloudinary = async (filePath, folder) => {
     try {
         const result = await cloudinary.uploader.upload(filePath, {
-            folder: `polls/${folder}`,
+            folder: `ecommerce/${folder}`,
             resource_type: 'auto'
         });
 

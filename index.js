@@ -5,6 +5,7 @@ import { configDotenv } from "dotenv";
 import { errorHandler, notFound } from "./middlewares/errorHandler.js";
 import authRouter from "./routes/auth.js";
 import userRouter from "./routes/user.js"
+import productRouter from "./routes/product.js"
 
 import { createServer } from "http";
 import { initSocket } from "./config/socketConnection.js";
@@ -39,6 +40,7 @@ app.get("/", (req, res) => {
 
 app.use("/api/auth", authRouter);
 app.use("/api/user", userRouter);
+app.use("/api/product", productRouter);
 
 app.use(notFound);
 app.use(errorHandler);

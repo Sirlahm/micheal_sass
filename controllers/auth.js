@@ -1,14 +1,22 @@
 import expressAsyncHandler from "express-async-handler";
 import User from "../models/user.js";
 import { generateToken } from "../config/jwtToken.js";
+import { createStripeAccount, createAccountLink, getAccountStatus } from "../services/stripe.js";
 import crypto from "crypto";
+import { sendVerificationEmail } from "../services/emailService.js";
+
 
 const createUser = expressAsyncHandler(async (req, res) => {
-    const { email } = req.body;
+    const { email, role, name } = req.body;
 
-    if (!email) {
+    if (!email || !role) {
         res.status(400);
-        throw new Error("Email is required");
+        throw new Error("Email, Role is required");
+    }
+
+    const validRoles = ['customer', 'vendor', 'superadmin'];
+    if (!validRoles.includes(role)) {
+        throw new Error('Invalid user role');
     }
 
     const existingUser = await User.findOne({ email });
@@ -17,24 +25,186 @@ const createUser = expressAsyncHandler(async (req, res) => {
         throw new Error("User with this email already exists");
     }
 
-    const newUser = await User.create(req.body);
-    res.status(201).json(newUser);
+    const userData = {
+        ...req.body
+    };
+
+    if (req.files?.avatar) {
+        const result = await uploadToCloudinary(req.files.avatar[0].path, 'avatars');
+        userData.avatar = {
+            url: result.url,
+            public_id: result.publicId
+        };
+    }
+
+    if (req.files?.businessLogo) {
+        const result = await uploadToCloudinary(req.files.businessLogo[0].path, 'business/logos');
+        userData.businessLogo = {
+            url: result.url,
+            public_id: result.publicId
+        };
+    }
+
+    if (req.files?.businessDocument) {
+        const result = await uploadToCloudinary(req.files.businessDocument[0].path, 'business/documents');
+        userData.businessDocument = {
+            url: result.url,
+            public_id: result.publicId
+        };
+    }
+    const user = await User.create(userData);
+
+    if (role === 'vendor') {
+        try {
+            const stripeAccount = await createStripeAccount(user);
+            user.stripeAccountId = stripeAccount.id;
+            await user.save();
+        } catch (err) {
+            await User.findByIdAndDelete(user._id);
+            throw new Error('Failed to create vendor payment account');
+        }
+    }
+    const token = user.getVerificationToken();
+    // await sendVerificationEmail(user.email, token);
+
+    // TODO: send email 
+    await user.save();
+    res.status(201).json({
+        user,
+        message: 'Verification email sent',
+
+    });
 });
+
+export const verifyEmail = expressAsyncHandler(async (req, res, next) => {
+    const { verificationToken } = req.params;
+    const hashedToken = crypto.createHash('sha256').update(verificationToken).digest('hex');
+
+    const user = await User.findOne({
+        verificationToken: hashedToken,
+        verificationTokenExpire: { $gt: Date.now() },
+    });
+
+    if (!user) {
+        throw new Error('Invalid or expired token');
+    }
+
+    user.isVerified = true;
+    user.verificationToken = undefined;
+    user.verificationTokenExpire = undefined;
+
+    let onboardingUrl = null;
+    if (user.role === 'vendor' && user.stripeAccountId) {
+        try {
+            const accountLink = await createAccountLink(user.stripeAccountId);
+            onboardingUrl = accountLink.url;
+        } catch (err) {
+            console.error('Failed to create Stripe onboarding link:', err);
+        }
+    }
+    await user.save();
+    const token = generateToken(user._id);
+
+    res.status(200).json({
+        success: true,
+        token,
+        data: {
+            message: 'Email verified successfully',
+            ...(user.role === 'vendor' && {
+                requiresOnboarding: !!onboardingUrl,
+                onboardingUrl,
+            }),
+        },
+    });
+});
+
+export const resendVerificationEmail = expressAsyncHandler(async (req, res, next) => {
+    const { email } = req.body;
+
+    const user = await User.findOne({ email });
+    if (!user) {
+        throw new Error('User not found');
+    }
+
+    if (user.isVerified) {
+        throw new Error('Email is already verified');
+    }
+
+    const verificationToken = user.getVerificationToken();
+    await user.save();
+    // await sendVerificationEmail(user.email, verificationToken);
+
+    //TODO : send email
+    res.status(200).json({
+        success: true,
+        message: 'Verification email resent',
+    });
+});
+
+export const checkVendorStatus = expressAsyncHandler(async (req, res) => {
+  const vendor = await User.findById(req.user.id);
+
+  if (!vendor || vendor.role !== 'vendor') {
+    throw new Error('Vendor account not found');
+  }
+
+  if (!vendor.isVerified) {
+    throw new Error('Please verify your email before logging in');
+  }
+
+  if (!vendor.stripeAccountId) {
+    throw new ErrorResponse('Payment account not set up');
+  }
+
+  const accountStatus = await getAccountStatus(vendor.stripeAccountId);
+  console.log(accountStatus)
+
+  if (!accountStatus.detailsSubmitted) {
+    const accountLink = await createAccountLink(vendor.stripeAccountId);
+    return res.status(200).json({
+      success: true,
+      data: {
+        status: 'onboarding_required',
+        onboardingUrl: accountLink.url,
+      },
+    });
+  }
+
+  if (!accountStatus.chargesEnabled || !accountStatus.payoutsEnabled) {
+    return res.status(200).json({
+      success: true,
+      data: {
+        status: 'pending_approval',
+        requirements: accountStatus.currentlyDue,
+      },
+    });
+  }
+
+  res.status(200).json({
+    success: true,
+    data: {
+      status: 'active',
+      message: 'Vendor account is fully set up',
+    },
+  });
+});
+
 
 const login = expressAsyncHandler(async (req, res) => {
     const { email, password } = req.body;
-
     if (!email || !password) {
         res.status(400);
         throw new Error("Email and Password are required");
     }
 
-    const findUser = await User.findOne({ email });
+    const findUser = await User.findOne({ email }).select("+password");
 
     if (findUser && (await findUser.isPasswordMatched(password))) {
         findUser.lastLogin = new Date();
         await findUser.save();
-
+        if (!findUser.isVerified) {
+            throw new Error('Please verify your email before logging in');
+        }
         res.status(200).json({
             user: findUser.toJSON(),
             token: generateToken(findUser._id),
@@ -132,4 +302,5 @@ export default {
     forgotPasswordToken,
     resetPassword,
     changePassword,
+    checkVendorStatus
 };
